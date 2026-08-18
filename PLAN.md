@@ -16,8 +16,9 @@ desktop. Packaged as a strict-confinement snap built with uv.
 - Idle CPU ≈ 0; redraw only when the clock moves.
 - Correct at HiDPI.
 - Builds and runs as a strict-confinement snap on this machine.
-- **Settings menu**: a small gear icon sits at the bottom center of the clock
-  face; clicking it flips the clock over to a settings panel — same visual
+- **Settings menu**: the Lucide `settings` icon (downloaded locally into
+  `wayclock/assets/`, see §4.6) sits at the bottom center of the clock face;
+  clicking it flips the clock over to a settings panel — same visual
   language as the clock. Exposes general styling + opacity controls that
   persist across runs.
 - **Resizable**: the window can be resized by the compositor/user, but the
@@ -57,7 +58,8 @@ loop dispatches events; GDK owns the surface, buffers, damage, and HiDPI scale;
 the **frame clock** (`Gtk.Window.add_tick_callback`) gives vsync pacing. We
 write only: window setup (RGBA visual), one cairo draw function, one tick
 callback. The settings panel is drawn on the same cairo canvas (a flip card),
-so styling stays pixel-consistent with the clock — no themes or icons.
+so styling stays pixel-consistent with the clock — no themes or widgets. The
+only asset in the app is the settings icon (see §4.6).
 
 ```
 GLib main loop (GTK3)
@@ -179,19 +181,39 @@ uv run wayclock                        # run against host Wayland session
 - Decision: **`--system-site-packages` is required** — PyGObject (`gi`) and
   pycairo are system packages (apt `python3-gi`, `python3-gi-cairo`); they are
   not pip-installable without building GObject introspection against system
-  libs, which is wrong inside a snap. uv's role: reproducible venv + runner +
-  lockfile discipline. `pyproject.toml` declares `requires-python >= 3.12` and
-  **zero** third-party dependencies (the clock needs none) — `uv.lock` stays
-  trivial, but the venv is still the packaging unit for the snap.
+  libs, which is wrong inside a snap. The settings icon also needs
+  `gir1.2-rsvg-2.0` (librsvg) on the host; the snap gets it from the gnome
+  extension (verified present in `gnome-46-2404` rev 153). uv's role:
+  reproducible venv + runner + lockfile discipline. `pyproject.toml` declares
+  `requires-python >= 3.12` and **zero** third-party Python dependencies (the
+  clock needs none; librsvg is a system lib, not a Python dep) — `uv.lock`
+  stays trivial, but the venv is still the packaging unit for the snap.
 
 ### 4.6 Settings menu, gear, flip (`clock.py` + `settings.py`)
 
 The settings panel is drawn on the **back face** of a flip card on the same
 cairo canvas as the clock — fully on-brand, no GTK widgets, themes, or icons.
 
-- **Gear icon**: drawn at the clock's bottom center (6 o'clock), a small
-  gear glyph at ~R/3 radius in the rim color. It is the only interactive
-  region on the front face.
+- **Settings icon** (decision: Lucide `settings`, not the Vanilla
+  `p-icon--settings`): downloaded locally into `wayclock/assets/settings.svg`
+  (official Lucide source, 24×24, MIT, stroke-based) and shipped with the
+  package via `[tool.setuptools.package-data]`, so the running app never
+  fetches anything. It sits at the clock's bottom center (6 o'clock):
+  icon radius `0.16 × R` (`GEAR_FRAC`) centred `0.58 × R` below the clock
+  centre (`GEAR_POS`), the only interactive region on the front face.
+  Raised above the 6 o'clock tick and the ticks nudged outward (hour
+  `0.78–0.92 R`, minute `0.85–0.92 R`) so the open-centred stroke icon and
+  the tick keep a visible gap (the old solid gear simply hid the tick).
+  - **Why Lucide over Vanilla**: requested by the user; the stroke-based cog
+    matches the clock's thin-line rim/hand language better than Vanilla's
+    filled glyph.
+  - **Rendering**: the SVG keeps `stroke="currentColor"`; librsvg
+    (`gi.repository.Rsvg`, part of the gnome-46-2404 SDK the snap already
+    uses — verified, rev 153) rasterizes it into the cached face surface,
+    one reused `Rsvg.Handle` with a per-render stylesheet
+    (`* { color: rgba(r,g,b,a) }`) tinting it to the rim colour, so theme +
+    opacity flow through exactly like every other element. No GTK widget,
+    no extra snap parts.
 - **Interaction**: the `DrawingArea` registers `BUTTON_PRESS_MASK` +
   `POINTER_MOTION_MASK` + `BUTTON_RELEASE_MASK`. A hit-test maps the pointer
   position to either the gear (front) or a control (back). In layer-shell
@@ -269,8 +291,9 @@ Parts:
    versions): `python3`, `python3-gi`, `python3-gi-cairo`, `python3-cairo`
    (pycairo: `import cairo`), `gir1.2-gtk-3.0`. `libgtk-3-0`,
    `libgirepository-1.0-1`, and `libcairo2` arrive as their dependencies —
-   no need to list them. No GNOME extension needed: we draw everything
-   ourselves (no themes/fonts/icons to stage).
+   no need to list them. The `gnome` extension provides the SDK (incl.
+   librsvg for the settings icon, §4.6); the icon itself rides inside the
+   wheel as package data — nothing else to stage.
 2. **`wayclock`** — copies `wayclock/` into `$CRAFT_PRIME/wayclock` and
    `snap/local/launch`; `override-prime` creates the venv **from the base
    python with `--system-site-packages`**, so gi and pycairo resolve from
@@ -313,7 +336,7 @@ same venv.
 | M4 | Sweep + low CPU | Second hand moves continuously; `pidstat -p <pid> 1` shows ≈ 0% between frames |
 | M5 | Snap works | `snapcraft` succeeds; `snap install --dangerous`; `snap run wayclock` renders the clock in the confined snap on this Wayland session; venv resolves (proof: gi imports from `$SNAP/usr`) |
 | M6 | Layer-shell (optional) | On a wlroots/Hyprland/KDE box: overlay top-right, no decorations, exclusive_zone −1, click-through. Not verifiable on this machine — marked optional |
-| M7 | Settings + flip + resize | Gear at bottom center; clicking flips (X-scale) to settings; opacity + theme + accent changes re-render the clock and are written to `$SNAP_USER_COMMON/settings.json`; a relaunch restores them. Window resizes but stays square at any size |
+| M7 | Settings + flip + resize | Settings icon at bottom center; clicking flips (X-scale) to settings; opacity + theme + accent changes re-render the clock and are written to `$SNAP_USER_COMMON/settings.json`; a relaunch restores them. Window resizes but stays square at any size |
 
 M1–M5 are required; M6 is an environment-dependent bonus; M7 is required.
 
@@ -337,6 +360,13 @@ M1–M5 are required; M6 is an environment-dependent bonus; M7 is required.
 - **GTK3 in a strict snap**: needs `wayland` plug only for rendering; `desktop`
   plug added for sane GTK settings/theme lookup. No X11 path required
   (GDK_BACKEND forced).
+- **Settings icon: Lucide `settings`, bundled locally** — chosen over the
+  Ubuntu Vanilla `p-icon--settings` (user request): Lucide is stroke-based,
+  which matches the clock's thin rim/hand line language, and MIT-licensed.
+  Downloaded once into `wayclock/assets/settings.svg` (no runtime fetch),
+  rendered with librsvg from the gnome-46-2404 SDK (verified present,
+  rev 153) — so the snap needs no new parts and dev needs only the
+  `gir1.2-rsvg-2.0` apt package, consistent with the zero-Python-deps rule.
 - **Flip is a 2D scale approximation, not a real 3D flip**: GTK3 has no 3D
   transform API, so the flip animates an X-scale with a cross-fade at the
   midpoint. Reads as a flip; no perspective foreshortening. Acceptable per

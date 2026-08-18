@@ -46,7 +46,10 @@ CAP_ACCENT_R = 2.5
 
 # settings icon (front face) — Lucide `settings`, local asset
 GEAR_FRAC = 0.16      # icon radius as a fraction of R
-GEAR_POS = 0.72       # icon centre offset below the clock centre (fraction of R)
+GEAR_POS = 0.58       # icon centre offset below the clock centre (fraction of R);
+                      #   keeps the icon above the 6 o'clock tick: icon bottom
+                      #   edge = GEAR_POS + GEAR_FRAC = 0.74R vs tick inner end
+                      #   0.78R minus its 2 px round cap ≈ 0.77R → ~5 px gap
 _ICON_PATH = Path(__file__).resolve().parent / "assets" / "settings.svg"
 _ICON_VIEWBOX = 24.0  # the lucide icon is 24x24
 _icon_handle = Rsvg.Handle.new_from_data(_ICON_PATH.read_bytes())
@@ -171,20 +174,15 @@ def _rim(ctx, cx, cy, R, style):
 def _ticks(ctx, cx, cy, R, style):
     ctx.set_line_cap(cairo.LINE_CAP_ROUND)
     for i in range(60):
-        if i == 30:
-            # 6 o'clock: the settings icon sits here and marks the hour;
-            # a tick would run through the icon's open centre and poke out
-            # below it (the stroke-based lucide cog cannot occlude it).
-            continue
         deg = i * 6.0
         if i % 5 == 0:
-            x1, y1 = _polar(cx, cy, R * 0.76, deg)
-            x2, y2 = _polar(cx, cy, R * 0.90, deg)
+            x1, y1 = _polar(cx, cy, R * 0.78, deg)
+            x2, y2 = _polar(cx, cy, R * 0.92, deg)
             ctx.set_line_width(HOUR_TICK_W)
             ctx.set_source_rgba(*style.tick_hour)
         else:
-            x1, y1 = _polar(cx, cy, R * 0.83, deg)
-            x2, y2 = _polar(cx, cy, R * 0.90, deg)
+            x1, y1 = _polar(cx, cy, R * 0.85, deg)
+            x2, y2 = _polar(cx, cy, R * 0.92, deg)
             ctx.set_line_width(MINUTE_TICK_W)
             ctx.set_source_rgba(*style.tick_minute)
         ctx.move_to(x1, y1)
@@ -298,10 +296,10 @@ def settings_layout(size):
     cx = cy = size / 2.0
     R = size / 2.0 - 6.0
     return {
-        "opacity": (cx - R * 0.45, cy - R * 0.48, R * 1.25, R * 0.10),
-        "theme": [(cx - R * 0.30, cy - R * 0.18, R * 0.11),
-                  (cx - R * 0.02, cy - R * 0.18, R * 0.11)],
-        "accent": [(cx - R * 0.42 + i * R * 0.26, cy + R * 0.12, R * 0.11)
+        "opacity": (cx - R * 0.30, cy - R * 0.48, R * 0.95, R * 0.10),
+        "theme": [(cx - R * 0.16, cy - R * 0.18, R * 0.11),
+                  (cx + R * 0.12, cy - R * 0.18, R * 0.11)],
+        "accent": [(cx - R * 0.24 + i * R * 0.26, cy + R * 0.12, R * 0.11)
                    for i in range(len(ACCENTS))],
         "back": (cx - R * 0.23, cy + R * 0.58, R * 0.46, R * 0.18),
     }
