@@ -1,0 +1,44 @@
+name: wayclock
+title: wayclock
+base: core24
+version: "0.1.0"
+summary: Floating analog clock for Wayland
+description: |
+  A circular, transparent analog clock that floats over the desktop.
+  Drawn entirely with cairo; no themes, fonts, or icons required.
+
+grade: stable
+confinement: strict
+
+apps:
+  wayclock:
+    extensions: [gnome] 
+    command: bin/wayclock-run # Points to the entry point created by pyproject.toml
+    environment:
+      GI_TYPELIB_PATH: $SNAP/usr/lib/$CRAFT_ARCH_TRIPLET/girepository-1.0:$SNAP/usr/lib/girepository-1.0
+
+parts:
+  wayclock-code:
+    plugin: python
+    source: .
+    # Link the plugin venv to system site-packages so gi/cairo (from the
+    # gnome extension SDK) are importable at runtime.
+    build-environment:
+      - PARTS_PYTHON_VENV_ARGS: --system-site-packages
+    override-build: |
+      # snapcraft's normalize step copies /usr/bin/python3.12 into
+      # $CRAFT_PART_INSTALL/usr/bin via shutil.copyfile, which drops the exec
+      # bit (0644). The plugin then relinks bin/python3 to it, so a stale
+      # relink makes the next build's venv ensurepip fail with EACCES.
+      # Start from a clean venv and restore the exec bit for runtime.
+      rm -rf "$CRAFT_PART_INSTALL"/bin "$CRAFT_PART_INSTALL"/lib \
+             "$CRAFT_PART_INSTALL"/lib64 "$CRAFT_PART_INSTALL"/include \
+             "$CRAFT_PART_INSTALL"/pyvenv.cfg
+      craftctl default
+      chmod +x "$CRAFT_PART_INSTALL"/usr/bin/python3.12
+    stage-packages:
+      - python3-gi
+      - python3-gi-cairo
+      - python3-cairo
+      - gir1.2-gtk-3.0
+      - libgtk-3-0

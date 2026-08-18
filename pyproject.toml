@@ -1,0 +1,21 @@
+[project]
+name = "wayclock"
+version = "0.1.0"
+description = "Floating analog clock for Wayland"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[tool.uv]
+package = false
+
+[tool.setuptools]
+# Explicit package list: flat-layout auto-discovery would also pick up snap/
+packages = ["wayclock"]
+
+[build-system]
+requires = ["setuptools>=61.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project.scripts]
+# This automatically maps the terminal command to your package's main execution function
+wayclock-run = "wayclock.app:main"
