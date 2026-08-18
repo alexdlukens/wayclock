@@ -1,10 +1,15 @@
-"""Pure cairo rendering for the analog clock face and the settings flip card.
+"""Cairo rendering for the analog clock face and the settings flip card.
 
 `draw_clock(ctx, size, now, style)` draws the complete clock (shadow, face,
-rim, ticks, gear, hands, center cap) into a cairo context whose coordinate
-space is a `size x size` square in logical pixels, centered. `draw_settings`
-draws the back face (the settings panel). No GTK state is touched, so the
-renderer is unit-testable against hand angles.
+rim, ticks, settings icon, hands, center cap) into a cairo context whose
+coordinate space is a `size x size` square in logical pixels, centered.
+`draw_settings` draws the back face (the settings panel). No GTK state is
+touched, so the renderer is unit-testable against hand angles.
+
+The settings entry icon is the Lucide `settings` icon (wayclock/assets/
+settings.svg), rasterized with librsvg and stroke-tinted to the style's rim
+colour; librsvg ships with the snap (gnome extension) and on the dev host
+(gir1.2-rsvg-2.0).
 
 Colours come from a `Style` (built by `style_from(settings)`); `settings_layout`
 and the `*_hit` helpers expose the pointer hit-test regions for app.py.
@@ -13,8 +18,18 @@ and the `*_hit` helpers expose the pointer hit-test regions for app.py.
 import math
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 import cairo
+try:
+    import gi
+    gi.require_version("Rsvg", "2.0")
+    from gi.repository import Rsvg
+except (ImportError, ValueError) as exc:
+    raise ImportError(
+        "wayclock renders the settings icon with librsvg; install "
+        "gir1.2-rsvg-2.0 (dev) — the snap bundles it via the gnome extension"
+    ) from exc
 
 from .settings import ACCENTS, OPACITY_MAX, OPACITY_MIN, THEMES
 
@@ -29,10 +44,12 @@ SECOND_TAIL = 0.15
 CAP_R = 5.0
 CAP_ACCENT_R = 2.5
 
-# gear (front face)
-GEAR_FRAC = 0.16      # gear radius as a fraction of R
-GEAR_TEETH = 8
-GEAR_POS = 0.72       # gear centre offset below the clock centre (fraction of R)
+# settings icon (front face) — Lucide `settings`, local asset
+GEAR_FRAC = 0.16      # icon radius as a fraction of R
+GEAR_POS = 0.72       # icon centre offset below the clock centre (fraction of R)
+_ICON_PATH = Path(__file__).resolve().parent / "assets" / "settings.svg"
+_ICON_VIEWBOX = 24.0  # the lucide icon is 24x24
+_icon_handle = Rsvg.Handle.new_from_data(_ICON_PATH.read_bytes())
 
 
 @dataclass(frozen=True)
@@ -154,6 +171,11 @@ def _rim(ctx, cx, cy, R, style):
 def _ticks(ctx, cx, cy, R, style):
     ctx.set_line_cap(cairo.LINE_CAP_ROUND)
     for i in range(60):
+        if i == 30:
+            # 6 o'clock: the settings icon sits here and marks the hour;
+            # a tick would run through the icon's open centre and poke out
+            # below it (the stroke-based lucide cog cannot occlude it).
+            continue
         deg = i * 6.0
         if i % 5 == 0:
             x1, y1 = _polar(cx, cy, R * 0.76, deg)
@@ -183,28 +205,27 @@ def gear_hit(size, x, y):
     return (x - gx) ** 2 + (y - gy) ** 2 <= (gr * 1.25) ** 2
 
 
-def _gear(ctx, gx, gy, gr, style):
+def _settings_icon(ctx, gx, gy, gr, style):
+    """Lucide `settings` icon, stroke-tinted to the rim colour, radius `gr`.
+
+    The SVG keeps `stroke="currentColor"`; a stylesheet sets `color` per
+    render, so one local asset serves every theme/opacity without re-encoding.
+    The handle is reused — `set_stylesheet` is cheap and rendering is
+    synchronous, so the shared handle never sees a torn state.
+    """
+    r, g, b, a = style.rim
+    css = "* { color: rgba(%d, %d, %d, %.3f); }" % (
+        round(r * 255), round(g * 255), round(b * 255), a)
+    _icon_handle.set_stylesheet(css.encode())
     ctx.save()
-    # teeth (radial strokes)
-    ctx.set_line_cap(cairo.LINE_CAP_ROUND)
-    ctx.set_source_rgba(*_ma(style.rim, 0.9))
-    ctx.set_line_width(gr * 0.5)
-    for i in range(GEAR_TEETH):
-        a = math.radians(i * 360.0 / GEAR_TEETH - 90.0)
-        ctx.move_to(gx + math.cos(a) * gr * 0.72, gy + math.sin(a) * gr * 0.72)
-        ctx.line_to(gx + math.cos(a) * gr * 1.12, gy + math.sin(a) * gr * 1.12)
-    ctx.stroke()
-    # ring body (annulus via even-odd fill)
-    ctx.set_fill_rule(cairo.FILL_RULE_EVEN_ODD)
-    ctx.set_source_rgba(*_ma(style.rim, 1.0))
-    ctx.arc(gx, gy, gr * 0.78, 0.0, 2.0 * math.pi)
-    ctx.arc(gx, gy, gr * 0.30, 0.0, 2.0 * math.pi)
-    ctx.fill()
-    # highlight tick on the ring
-    ctx.set_source_rgba(*_ma(style.rim_highlight, 0.8))
-    ctx.set_line_width(gr * 0.14)
-    ctx.arc(gx, gy, gr * 0.78, -0.5, 0.5)
-    ctx.stroke()
+    ctx.translate(gx, gy)
+    s = 2.0 * gr / _ICON_VIEWBOX
+    ctx.scale(s, s)
+    ctx.translate(-_ICON_VIEWBOX / 2.0, -_ICON_VIEWBOX / 2.0)
+    viewport = Rsvg.Rectangle()
+    viewport.x = viewport.y = 0.0
+    viewport.width = viewport.height = _ICON_VIEWBOX
+    _icon_handle.render_document(ctx, viewport)
     ctx.restore()
 
 
@@ -235,7 +256,7 @@ def _cap(ctx, cx, cy, style):
 
 
 def draw_face(ctx, size, style):
-    """Static part: shadow, face, rim, ticks, gear. Safe to cache offscreen."""
+    """Static part: shadow, face, rim, ticks, settings icon. Cacheable offscreen."""
     cx = cy = size / 2.0
     R = size / 2.0 - 6.0
     _shadow_disk(ctx, cx, cy, R, style)
@@ -243,7 +264,7 @@ def draw_face(ctx, size, style):
     _rim(ctx, cx, cy, R, style)
     _ticks(ctx, cx, cy, R, style)
     gx, gy = gear_center(size)
-    _gear(ctx, gx, gy, R * GEAR_FRAC, style)
+    _settings_icon(ctx, gx, gy, R * GEAR_FRAC, style)
 
 
 def draw_hands(ctx, size, now, style):

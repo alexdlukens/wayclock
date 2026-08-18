@@ -12,6 +12,10 @@ package = false
 # Explicit package list: flat-layout auto-discovery would also pick up snap/
 packages = ["wayclock"]
 
+[tool.setuptools.package-data]
+# The lucide settings icon shipped for the settings menu (see PLAN.md §4.6).
+wayclock = ["assets/*.svg"]
+
 [build-system]
 requires = ["setuptools>=61.0.0"]
 build-backend = "setuptools.build_meta"
