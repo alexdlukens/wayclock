@@ -25,17 +25,6 @@ parts:
     # gnome extension SDK) are importable at runtime.
     build-environment:
       - PARTS_PYTHON_VENV_ARGS: --system-site-packages
-    override-build: |
-      # snapcraft's normalize step copies /usr/bin/python3.12 into
-      # $CRAFT_PART_INSTALL/usr/bin via shutil.copyfile, which drops the exec
-      # bit (0644). The plugin then relinks bin/python3 to it, so a stale
-      # relink makes the next build's venv ensurepip fail with EACCES.
-      # Start from a clean venv and restore the exec bit for runtime.
-      rm -rf "$CRAFT_PART_INSTALL"/bin "$CRAFT_PART_INSTALL"/lib \
-             "$CRAFT_PART_INSTALL"/lib64 "$CRAFT_PART_INSTALL"/include \
-             "$CRAFT_PART_INSTALL"/pyvenv.cfg
-      craftctl default
-      chmod +x "$CRAFT_PART_INSTALL"/usr/bin/python3.12
     stage-packages:
       - python3-gi
       - python3-gi-cairo
