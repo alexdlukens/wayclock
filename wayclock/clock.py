@@ -72,32 +72,45 @@ class Style:
 
 # ---- theme presets (RGB + base alpha; opacity multiplies alpha) ----
 LIGHT = Style(
-    face_core=(1.00, 1.00, 1.00, 0.95),
-    face_edge=(0.90, 0.92, 0.96, 0.88),
-    rim=(0.16, 0.18, 0.24, 0.90),
+    face_core=(1.00, 1.00, 1.00, 1.00),
+    face_edge=(0.90, 0.92, 0.96, 1.00),
+    rim=(0.16, 0.18, 0.24, 1.00),
     rim_highlight=(1.00, 1.00, 1.00, 0.55),
-    tick_hour=(0.12, 0.14, 0.20, 0.95),
+    tick_hour=(0.12, 0.14, 0.20, 1.00),
     tick_minute=(0.12, 0.14, 0.20, 0.35),
-    hand_hour=(0.12, 0.14, 0.20, 0.95),
-    hand_minute=(0.14, 0.16, 0.22, 0.95),
-    hand_second=(0.85, 0.27, 0.22, 0.95),
+    hand_hour=(0.12, 0.14, 0.20, 1.00),
+    hand_minute=(0.14, 0.16, 0.22, 1.00),
+    hand_second=(0.85, 0.27, 0.22, 1.00),
     shadow=(0.00, 0.00, 0.00, 0.16),
 )
 
 DARK = Style(
-    face_core=(0.16, 0.17, 0.22, 0.95),
-    face_edge=(0.08, 0.09, 0.13, 0.90),
-    rim=(0.90, 0.92, 0.96, 0.75),
+    face_core=(0.16, 0.17, 0.22, 1.00),
+    face_edge=(0.08, 0.09, 0.13, 1.00),
+    rim=(0.90, 0.92, 0.96, 1.00),
     rim_highlight=(1.00, 1.00, 1.00, 0.25),
-    tick_hour=(0.90, 0.92, 0.96, 0.95),
+    tick_hour=(0.90, 0.92, 0.96, 1.00),
     tick_minute=(0.90, 0.92, 0.96, 0.35),
-    hand_hour=(0.90, 0.92, 0.96, 0.95),
-    hand_minute=(0.80, 0.84, 0.90, 0.95),
-    hand_second=(0.85, 0.27, 0.22, 0.95),
+    hand_hour=(0.90, 0.92, 0.96, 1.00),
+    hand_minute=(0.80, 0.84, 0.90, 1.00),
+    hand_second=(0.85, 0.27, 0.22, 1.00),
     shadow=(0.00, 0.00, 0.00, 0.30),
 )
 
-_PRESETS = {"light": LIGHT, "dark": DARK}
+TAN = Style(
+    face_core=(0.91, 0.85, 0.73, 1.00),
+    face_edge=(0.78, 0.68, 0.52, 1.00),
+    rim=(0.35, 0.25, 0.15, 1.00),
+    rim_highlight=(1.00, 0.97, 0.90, 0.55),
+    tick_hour=(0.30, 0.22, 0.12, 1.00),
+    tick_minute=(0.30, 0.22, 0.12, 0.35),
+    hand_hour=(0.30, 0.22, 0.12, 1.00),
+    hand_minute=(0.34, 0.26, 0.15, 1.00),
+    hand_second=(0.85, 0.27, 0.22, 1.00),
+    shadow=(0.00, 0.00, 0.00, 0.20),
+)
+
+_PRESETS = {"light": LIGHT, "dark": DARK, "tan": TAN}
 
 
 def _ma(color, opacity):
@@ -120,7 +133,7 @@ def style_from(settings):
         hand_hour=_ma(base.hand_hour, o),
         hand_minute=_ma(base.hand_minute, o),
         hand_second=(accent[0], accent[1], accent[2], base.hand_second[3] * o),
-        shadow=base.shadow,
+        shadow=_ma(base.shadow, o),
     )
 
 
@@ -297,8 +310,8 @@ def settings_layout(size):
     R = size / 2.0 - 6.0
     return {
         "opacity": (cx - R * 0.30, cy - R * 0.48, R * 0.95, R * 0.10),
-        "theme": [(cx - R * 0.16, cy - R * 0.18, R * 0.11),
-                  (cx + R * 0.12, cy - R * 0.18, R * 0.11)],
+        "theme": [(cx - R * 0.26 * (len(THEMES) - 1) / 2.0 + i * R * 0.26,
+                   cy - R * 0.18, R * 0.11) for i in range(len(THEMES))],
         "accent": [(cx - R * 0.24 + i * R * 0.26, cy + R * 0.12, R * 0.11)
                    for i in range(len(ACCENTS))],
         "back": (cx - R * 0.23, cy + R * 0.58, R * 0.46, R * 0.18),
@@ -353,7 +366,26 @@ def _rrect(ctx, x, y, w, h, r):
     ctx.close_path()
 
 
-_THEME_SWATCH = {"light": (0.93, 0.94, 0.96), "dark": (0.13, 0.14, 0.18)}
+# Theme swatches and the settings panel follow the theme presets, so adding a
+# theme updates every surface (face, swatch, panel) from one definition.
+_THEME_SWATCH = {name: preset.face_core for name, preset in _PRESETS.items()}
+
+
+def _panel_palette(theme):
+    """(core, edge, text, dim) colours for the settings panel, themed.
+
+    The panel is a slightly deepened version of the theme's face gradient;
+    text uses the theme's tick colour, so light themes get dark text and the
+    dark theme gets light text.
+    """
+    base = _PRESETS[theme]
+    core = (base.face_core[0] * 0.96, base.face_core[1] * 0.96,
+            base.face_core[2] * 0.96, base.face_core[3])
+    edge = (base.face_edge[0] * 0.92, base.face_edge[1] * 0.92,
+            base.face_edge[2] * 0.92, base.face_edge[3])
+    text = base.tick_hour
+    dim = (text[0], text[1], text[2], 0.80)
+    return core, edge, text, dim
 
 
 def draw_settings(ctx, size, settings, style):
@@ -361,18 +393,17 @@ def draw_settings(ctx, size, settings, style):
     cx = cy = size / 2.0
     R = size / 2.0 - 6.0
     lay = settings_layout(size)
-    TEXT = (0.95, 0.96, 0.98, 0.95)
-    DIM = (0.80, 0.82, 0.88, 0.80)
+    core, edge, TEXT, DIM = _panel_palette(settings.theme)
 
-    # panel (dark translucent disc + rim) — the "back of the card"
+    # panel (theme-tinted translucent disc + rim) — the "back of the card"
     g = cairo.RadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R)
-    g.add_color_stop_rgba(0.0, 0.10, 0.11, 0.16, 0.95)
-    g.add_color_stop_rgba(1.0, 0.05, 0.06, 0.10, 0.94)
+    g.add_color_stop_rgba(0.0, *core)
+    g.add_color_stop_rgba(1.0, *edge)
     ctx.set_source(g)
     ctx.arc(cx, cy, R, 0.0, 2.0 * math.pi)
     ctx.fill()
     ctx.set_line_width(RIM_WIDTH)
-    ctx.set_source_rgba(0.90, 0.92, 0.96, 0.70)
+    ctx.set_source_rgba(*style.rim)
     ctx.arc(cx, cy, R, 0.0, 2.0 * math.pi)
     ctx.stroke()
 
@@ -384,10 +415,10 @@ def draw_settings(ctx, size, settings, style):
           align="left")
     ox, oy, ow, oh = lay["opacity"]
     frac = (settings.opacity - OPACITY_MIN) / (OPACITY_MAX - OPACITY_MIN)
-    ctx.set_source_rgba(1.0, 1.0, 1.0, 0.18)
+    ctx.set_source_rgba(style.rim[0], style.rim[1], style.rim[2], 0.25)
     _rrect(ctx, ox, oy, ow, oh, oh / 2.0)
     ctx.fill()
-    ctx.set_source_rgba(0.90, 0.92, 0.96, 0.9)
+    ctx.set_source_rgba(TEXT[0], TEXT[1], TEXT[2], 0.9)
     _rrect(ctx, ox, oy, max(oh, ow * frac), oh, oh / 2.0)
     ctx.fill()
     ctx.set_source_rgba(*style.hand_second)
@@ -402,6 +433,11 @@ def draw_settings(ctx, size, settings, style):
         ctx.set_source_rgba(*_THEME_SWATCH[name])
         ctx.arc(sx, sy, sr, 0.0, 2.0 * math.pi)
         ctx.fill()
+        # thin black ring separates the swatches from the panel (and each other)
+        ctx.set_line_width(max(1.0, sr * 0.08))
+        ctx.set_source_rgba(0.0, 0.0, 0.0, 0.9)
+        ctx.arc(sx, sy, sr, 0.0, 2.0 * math.pi)
+        ctx.stroke()
         if active:
             ctx.set_line_width(max(2.0, sr * 0.22))
             ctx.set_source_rgba(*style.hand_second)
@@ -425,11 +461,11 @@ def draw_settings(ctx, size, settings, style):
 
     # back button
     bx, by, bw, bh = lay["back"]
-    ctx.set_source_rgba(1.0, 1.0, 1.0, 0.12)
+    ctx.set_source_rgba(style.rim[0], style.rim[1], style.rim[2], 0.12)
     _rrect(ctx, bx, by, bw, bh, bh / 2.0)
     ctx.fill()
     ctx.set_line_width(1.0)
-    ctx.set_source_rgba(1.0, 1.0, 1.0, 0.4)
+    ctx.set_source_rgba(style.rim[0], style.rim[1], style.rim[2], 0.4)
     _rrect(ctx, bx, by, bw, bh, bh / 2.0)
     ctx.stroke()
     _text(ctx, "\u2039 Back", cx, by + bh / 2.0, R * 0.11, TEXT)

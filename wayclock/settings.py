@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 # ---- defaults & palette (single place to restyle) ----
 OPACITY_MIN = 0.15
 OPACITY_MAX = 1.0
-THEMES = ("light", "dark")
+THEMES = ("light", "dark", "tan")
 
 # accent color keys -> (r, g, b); used for the second hand + swatches.
 ACCENTS = {

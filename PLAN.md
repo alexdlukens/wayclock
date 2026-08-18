@@ -226,7 +226,7 @@ cairo canvas as the clock — fully on-brand, no GTK widgets, themes, or icons.
   applies `translate(cx,0) scale(|flip|,1) translate(-cx,0)` and picks the
   face by the sign of `flip`.
 - **Controls** (drawn + hit-tested in cairo, same language as the clock):
-  - **Opacity** — vertical slider (0.15–1.0) scaling the whole clock's alpha.
+  - **Opacity** — slider (0.15–1.0) scaling the whole clock's alpha.
   - **Styling / theme** — swatch row: light / dark face preset (affects
     `FACE_CORE`/`FACE_EDGE`/`RIM_*` constants).
   - **Accent color** — small palette of swatches for the second hand
