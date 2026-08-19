@@ -16,6 +16,8 @@ from dataclasses import asdict, dataclass
 # ---- defaults & palette (single place to restyle) ----
 OPACITY_MIN = 0.15
 OPACITY_MAX = 1.0
+FROST_MIN = 0.0            # 0 = opaque face (pre-frost look), 1 = full frosted
+FROST_MAX = 1.0
 THEMES = ("light", "dark", "tan")
 
 # accent color keys -> (r, g, b); used for the second hand + swatches.
@@ -31,6 +33,7 @@ ACCENTS = {
 @dataclass
 class Settings:
     opacity: float = OPACITY_MAX
+    frost: float = FROST_MAX
     theme: str = "light"
     accent: str = "red"
 
@@ -65,6 +68,8 @@ def load():
         return s
     if isinstance(data.get("opacity"), (int, float)):
         s.opacity = min(OPACITY_MAX, max(OPACITY_MIN, float(data["opacity"])))
+    if isinstance(data.get("frost"), (int, float)):
+        s.frost = min(FROST_MAX, max(FROST_MIN, float(data["frost"])))
     if data.get("theme") in THEMES:
         s.theme = data["theme"]
     if data.get("accent") in ACCENTS:

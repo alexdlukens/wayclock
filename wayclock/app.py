@@ -141,6 +141,11 @@ class ClockWindow:
         self._invalidate_face()
         self.area.queue_draw()
 
+    def _apply_frost_from_x(self, x, size):
+        self.settings.frost = clock.frost_from_x(size, x)
+        self._invalidate_face()
+        self.area.queue_draw()
+
     def _save_settings(self):
         settings_mod.save(self.settings)
 
@@ -160,6 +165,9 @@ class ClockWindow:
         elif kind == "opacity":
             self._drag = "opacity"
             self._apply_opacity_from_x(x, size)
+        elif kind == "frost":
+            self._drag = "frost"
+            self._apply_frost_from_x(x, size)
         elif kind == "theme":
             self.settings.theme = settings_mod.THEMES[idx]
             self._invalidate_face()
@@ -173,13 +181,16 @@ class ClockWindow:
         return True
 
     def on_motion(self, widget, event):
-        if self._drag == "opacity":
+        if self._drag in ("opacity", "frost"):
             size = self._current_size()
-            self._apply_opacity_from_x(event.x, size)
+            if self._drag == "opacity":
+                self._apply_opacity_from_x(event.x, size)
+            else:
+                self._apply_frost_from_x(event.x, size)
         return False
 
     def on_button_release(self, widget, event):
-        if self._drag == "opacity":
+        if self._drag in ("opacity", "frost"):
             self._drag = None
             self._save_settings()
         return False

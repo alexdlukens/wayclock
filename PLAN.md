@@ -146,8 +146,12 @@ Pure function `draw_clock(ctx, size, now)` — cairo only, no GTK state,
 testable against hand angles. Drawing order (same geometry as v1 plan):
 
 1. **Soft shadow** — radial-gradient disk, low alpha, +3 px offset.
-2. **Face** — radial gradient (near-white core → slightly darker edge),
-   `alpha ≈ 0.92`, translucent.
+2. **Face — frosted glass** — translucent milky radial gradient
+   (`face_core`/`face_edge`, `alpha ≈ 0.5` so the desktop shows through),
+   then a fixed-seed scattering grain (tiled 128 px noise, ~5–13% alpha) and
+   a top-left light sheen, all clipped to the disc — see §4.3a. The face
+   diffuses the backdrop like real frosted glass; outside the disc alpha
+   stays 0.
 3. **Rim** — 2 px ring: darker outer + lighter inner highlight.
 4. **Ticks** — 60 minute ticks (short, ~30% alpha), 12 hour ticks (long,
    bold, ~90% alpha) drawn on top; `sin/cos` placement inside the rim.
@@ -161,6 +165,24 @@ testable against hand angles. Drawing order (same geometry as v1 plan):
 
 Sizes/colors are module constants at the top of `clock.py` (single theme
 point).
+
+### 4.3a Frosted glass (look, not true backdrop blur)
+
+"Frosted glass" asked for a milky, light-diffusing face. True backdrop blur
+is compositor-owned: KWin exposes a blur protocol, but Mutter (this box) and
+wlroots expose none to clients, and the client-side fallback (portal
+ScreenCast) needs interactive permission and constant re-capture. So the face
+is frosted the way the material actually behaves — a **translucent milky
+panel** (`alpha ≈ 0.5` per theme) that softens the backdrop, a **static
+scattering grain** (fixed-seed 128 px noise tile, ~5–13% alpha, clipped to
+the disc, cached once) and a **top-left light sheen** — and the compositor
+blends the desktop through the low-alpha disc. Every pixel outside the disc
+stays alpha 0 (verified by render probe + live screenshot). The settings
+panel's **Frost slider** (0–1) interpolates the whole effect — face/panel
+alpha 1.0 ↔ ~0.5, grain and sheen 0 ↔ full — so 0 is the original opaque
+face and 1 the full frosted look; the opacity slider independently scales
+the overall alpha. True blur on KDE is a possible future extension via
+`org_kde_kwin_blur`; everywhere else this look is the ceiling.
 
 ### 4.4 Pacing & CPU
 
@@ -227,6 +249,8 @@ cairo canvas as the clock — fully on-brand, no GTK widgets, themes, or icons.
   face by the sign of `flip`.
 - **Controls** (drawn + hit-tested in cairo, same language as the clock):
   - **Opacity** — slider (0.15–1.0) scaling the whole clock's alpha.
+  - **Frost** — slider (0–1) for the frosted-glass intensity: 0 = opaque
+    face (pre-frost look), 1 = milky translucent + grain + sheen (§4.3a).
   - **Styling / theme** — swatch row: light / dark face preset (affects
     `FACE_CORE`/`FACE_EDGE`/`RIM_*` constants).
   - **Accent color** — small palette of swatches for the second hand

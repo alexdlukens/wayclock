@@ -16,6 +16,7 @@ and the `*_hit` helpers expose the pointer hit-test regions for app.py.
 """
 
 import math
+import random
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -31,7 +32,9 @@ except (ImportError, ValueError) as exc:
         "gir1.2-rsvg-2.0 (dev) — the snap bundles it via the gnome extension"
     ) from exc
 
-from .settings import ACCENTS, OPACITY_MAX, OPACITY_MIN, THEMES
+from .settings import (
+    ACCENTS, FROST_MAX, FROST_MIN, OPACITY_MAX, OPACITY_MIN, THEMES,
+)
 
 # ---- fixed geometry ----
 SHADOW_OFFSET = 3.0
@@ -57,7 +60,12 @@ _icon_handle = Rsvg.Handle.new_from_data(_ICON_PATH.read_bytes())
 
 @dataclass(frozen=True)
 class Style:
-    """Colour set for one rendering pass (theme + accent + opacity baked in)."""
+    """Colour set for one rendering pass (theme + accent + opacity baked in).
+
+    `frost` (0..1) is the frosted-glass intensity: 0 renders the opaque
+    pre-frost face, 1 the milky translucent + grained face. The face alphas
+    already reflect it; grain/sheen scale from it at paint time.
+    """
     face_core: tuple
     face_edge: tuple
     rim: tuple
@@ -68,12 +76,13 @@ class Style:
     hand_minute: tuple
     hand_second: tuple
     shadow: tuple
+    frost: float
 
 
 # ---- theme presets (RGB + base alpha; opacity multiplies alpha) ----
 LIGHT = Style(
-    face_core=(1.00, 1.00, 1.00, 1.00),
-    face_edge=(0.90, 0.92, 0.96, 1.00),
+    face_core=(1.00, 1.00, 1.00, 0.50),
+    face_edge=(0.90, 0.92, 0.96, 0.58),
     rim=(0.16, 0.18, 0.24, 1.00),
     rim_highlight=(1.00, 1.00, 1.00, 0.55),
     tick_hour=(0.12, 0.14, 0.20, 1.00),
@@ -82,11 +91,12 @@ LIGHT = Style(
     hand_minute=(0.14, 0.16, 0.22, 1.00),
     hand_second=(0.85, 0.27, 0.22, 1.00),
     shadow=(0.00, 0.00, 0.00, 0.16),
+    frost=1.0,
 )
 
 DARK = Style(
-    face_core=(0.16, 0.17, 0.22, 1.00),
-    face_edge=(0.08, 0.09, 0.13, 1.00),
+    face_core=(0.16, 0.17, 0.22, 0.48),
+    face_edge=(0.08, 0.09, 0.13, 0.55),
     rim=(0.90, 0.92, 0.96, 1.00),
     rim_highlight=(1.00, 1.00, 1.00, 0.25),
     tick_hour=(0.90, 0.92, 0.96, 1.00),
@@ -95,11 +105,12 @@ DARK = Style(
     hand_minute=(0.80, 0.84, 0.90, 1.00),
     hand_second=(0.85, 0.27, 0.22, 1.00),
     shadow=(0.00, 0.00, 0.00, 0.30),
+    frost=1.0,
 )
 
 TAN = Style(
-    face_core=(0.91, 0.85, 0.73, 1.00),
-    face_edge=(0.78, 0.68, 0.52, 1.00),
+    face_core=(0.91, 0.85, 0.73, 0.49),
+    face_edge=(0.78, 0.68, 0.52, 0.56),
     rim=(0.35, 0.25, 0.15, 1.00),
     rim_highlight=(1.00, 0.97, 0.90, 0.55),
     tick_hour=(0.30, 0.22, 0.12, 1.00),
@@ -108,6 +119,7 @@ TAN = Style(
     hand_minute=(0.34, 0.26, 0.15, 1.00),
     hand_second=(0.85, 0.27, 0.22, 1.00),
     shadow=(0.00, 0.00, 0.00, 0.20),
+    frost=1.0,
 )
 
 _PRESETS = {"light": LIGHT, "dark": DARK, "tan": TAN}
@@ -118,14 +130,25 @@ def _ma(color, opacity):
     return (color[0], color[1], color[2], color[3] * opacity)
 
 
+def _frosted_alpha(base_alpha, frost):
+    """Face/panel alpha: opaque at frost 0, milky frosted value at frost 1."""
+    return base_alpha + (1.0 - base_alpha) * (1.0 - frost)
+
+
+def _frosted(color, frost):
+    """Colour with its alpha interpolated by the frosted-glass intensity."""
+    return (color[0], color[1], color[2], _frosted_alpha(color[3], frost))
+
+
 def style_from(settings):
-    """Effective style for the current settings (theme, accent, opacity)."""
+    """Effective style for the current settings (theme, accent, opacity, frost)."""
     base = _PRESETS[settings.theme]
     o = settings.opacity
+    frost = settings.frost
     accent = ACCENTS[settings.accent]
     return Style(
-        face_core=_ma(base.face_core, o),
-        face_edge=_ma(base.face_edge, o),
+        face_core=_ma(_frosted(base.face_core, frost), o),
+        face_edge=_ma(_frosted(base.face_edge, frost), o),
         rim=_ma(base.rim, o),
         rim_highlight=_ma(base.rim_highlight, o),
         tick_hour=_ma(base.tick_hour, o),
@@ -134,6 +157,7 @@ def style_from(settings):
         hand_minute=_ma(base.hand_minute, o),
         hand_second=(accent[0], accent[1], accent[2], base.hand_second[3] * o),
         shadow=_ma(base.shadow, o),
+        frost=frost,
     )
 
 
@@ -164,6 +188,61 @@ def _shadow_disk(ctx, cx, cy, R, style):
     ctx.fill()
 
 
+# ---- frosted glass ----
+# True backdrop blur is compositor-owned: KWin exposes a blur protocol, Mutter
+# and wlroots expose none to clients, and screen-capture fallbacks (portal
+# ScreenCast) need interactive permission and constant re-capture. So the face
+# is frosted the way the material actually works — a translucent milky panel
+# that softens the backdrop, plus a random scattering grain and a light
+# sheen — and the compositor blends the desktop through the low-alpha disc.
+GRAIN_TILE = 128           # px side of the tiled scattering texture
+GRAIN_ALPHA = (0.05, 0.13)  # per-pixel speckle alpha range
+GRAIN_TONE = (0.35, 0.65)   # per-pixel gray range (premultiplied below)
+SHEEN_ALPHA = 0.13          # top-left "glass catching the light" strength
+_GRAIN = None               # cached (surface, buffer); build once, reuse
+
+
+def _grain():
+    """Tiled frosted-glass noise, premultiplied ARGB32, fixed seed."""
+    global _GRAIN
+    if _GRAIN is None:
+        n = GRAIN_TILE
+        rnd = random.Random(0xC10C)          # fixed seed → reproducible grain
+        buf = bytearray(n * n * 4)
+        for i in range(n * n):
+            a = rnd.uniform(*GRAIN_ALPHA)
+            g = int(255 * rnd.uniform(*GRAIN_TONE) * a)   # premultiplied gray
+            off = i * 4
+            buf[off] = g                     # b
+            buf[off + 1] = g                 # g
+            buf[off + 2] = g                 # r
+            buf[off + 3] = int(255 * a)      # a
+        surf = cairo.ImageSurface.create_for_data(
+            buf, cairo.FORMAT_ARGB32, n, n, n * 4)
+        _GRAIN = (surf, buf)                 # keep the buffer alive
+    return _GRAIN[0]
+
+
+def _frost(ctx, cx, cy, R, frost):
+    """Grain + sheen masked to the disc; strength follows the frost slider."""
+    if frost <= 0.0:
+        return
+    ctx.save()
+    ctx.arc(cx, cy, R, 0.0, 2.0 * math.pi)
+    ctx.clip()
+    pat = cairo.SurfacePattern(_grain())
+    pat.set_extend(cairo.EXTEND_REPEAT)
+    ctx.set_source(pat)
+    ctx.paint_with_alpha(frost)
+    g = cairo.RadialGradient(cx - R * 0.45, cy - R * 0.45, 0.0,
+                             cx - R * 0.45, cy - R * 0.45, R * 1.1)
+    g.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, SHEEN_ALPHA * frost)
+    g.add_color_stop_rgba(0.6, 1.0, 1.0, 1.0, 0.0)
+    ctx.set_source(g)
+    ctx.paint()
+    ctx.restore()
+
+
 def _face(ctx, cx, cy, R, style):
     g = cairo.RadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R)
     g.add_color_stop_rgba(0.0, *style.face_core)
@@ -171,6 +250,7 @@ def _face(ctx, cx, cy, R, style):
     ctx.set_source(g)
     ctx.arc(cx, cy, R, 0.0, 2.0 * math.pi)
     ctx.fill()
+    _frost(ctx, cx, cy, R, style.frost)
 
 
 def _rim(ctx, cx, cy, R, style):
@@ -310,6 +390,7 @@ def settings_layout(size):
     R = size / 2.0 - 6.0
     return {
         "opacity": (cx - R * 0.30, cy - R * 0.48, R * 0.95, R * 0.10),
+        "frost": (cx - R * 0.30, cy + R * 0.44, R * 0.95, R * 0.10),
         "theme": [(cx - R * 0.26 * (len(THEMES) - 1) / 2.0 + i * R * 0.26,
                    cy - R * 0.18, R * 0.11) for i in range(len(THEMES))],
         "accent": [(cx - R * 0.24 + i * R * 0.26, cy + R * 0.12, R * 0.11)
@@ -327,6 +408,9 @@ def settings_hit(size, x, y):
     ox, oy, ow, oh = lay["opacity"]
     if ox - oh <= x <= ox + ow + oh and oy - oh <= y <= oy + oh + oh:
         return "opacity", None
+    fx, fy, fw, fh = lay["frost"]
+    if fx - fh <= x <= fx + fw + fh and fy - fh <= y <= fy + fh + fh:
+        return "frost", None
     for i, (sx, sy, sr) in enumerate(lay["theme"]):
         if (x - sx) ** 2 + (y - sy) ** 2 <= (sr * 1.6) ** 2:
             return "theme", i
@@ -336,12 +420,22 @@ def settings_hit(size, x, y):
     return None, None
 
 
-def opacity_from_x(size, x):
-    """Map a pointer x inside the opacity track to an opacity value."""
-    ox, oy, ow, oh = settings_layout(size)["opacity"]
+def _track_value(size, key, lo, hi, x):
+    """Map a pointer x inside a slider track to its value in [lo, hi]."""
+    ox, oy, ow, oh = settings_layout(size)[key]
     t = (x - ox) / ow
     t = min(1.0, max(0.0, t))
-    return round(OPACITY_MIN + t * (OPACITY_MAX - OPACITY_MIN), 3)
+    return round(lo + t * (hi - lo), 3)
+
+
+def opacity_from_x(size, x):
+    """Map a pointer x inside the opacity track to an opacity value."""
+    return _track_value(size, "opacity", OPACITY_MIN, OPACITY_MAX, x)
+
+
+def frost_from_x(size, x):
+    """Map a pointer x inside the frost track to a frost intensity."""
+    return _track_value(size, "frost", FROST_MIN, FROST_MAX, x)
 
 
 def _text(ctx, s, x, y, font_size, color, align="center"):
@@ -368,21 +462,26 @@ def _rrect(ctx, x, y, w, h, r):
 
 # Theme swatches and the settings panel follow the theme presets, so adding a
 # theme updates every surface (face, swatch, panel) from one definition.
-_THEME_SWATCH = {name: preset.face_core for name, preset in _PRESETS.items()}
+# Swatches render near-opaque so they read against the frosted panel behind.
+_THEME_SWATCH = {
+    name: (preset.face_core[0], preset.face_core[1], preset.face_core[2], 0.85)
+    for name, preset in _PRESETS.items()
+}
 
 
-def _panel_palette(theme):
+def _panel_palette(theme, frost):
     """(core, edge, text, dim) colours for the settings panel, themed.
 
     The panel is a slightly deepened version of the theme's face gradient;
     text uses the theme's tick colour, so light themes get dark text and the
-    dark theme gets light text.
+    dark theme gets light text. Translucency follows the frost slider like
+    the front face, so the card reads consistently at any intensity.
     """
     base = _PRESETS[theme]
     core = (base.face_core[0] * 0.96, base.face_core[1] * 0.96,
-            base.face_core[2] * 0.96, base.face_core[3])
+            base.face_core[2] * 0.96, _frosted_alpha(base.face_core[3], frost))
     edge = (base.face_edge[0] * 0.92, base.face_edge[1] * 0.92,
-            base.face_edge[2] * 0.92, base.face_edge[3])
+            base.face_edge[2] * 0.92, _frosted_alpha(base.face_edge[3], frost))
     text = base.tick_hour
     dim = (text[0], text[1], text[2], 0.80)
     return core, edge, text, dim
@@ -393,7 +492,7 @@ def draw_settings(ctx, size, settings, style):
     cx = cy = size / 2.0
     R = size / 2.0 - 6.0
     lay = settings_layout(size)
-    core, edge, TEXT, DIM = _panel_palette(settings.theme)
+    core, edge, TEXT, DIM = _panel_palette(settings.theme, settings.frost)
 
     # panel (theme-tinted translucent disc + rim) — the "back of the card"
     g = cairo.RadialGradient(cx - R * 0.35, cy - R * 0.35, R * 0.1, cx, cy, R)
@@ -402,6 +501,7 @@ def draw_settings(ctx, size, settings, style):
     ctx.set_source(g)
     ctx.arc(cx, cy, R, 0.0, 2.0 * math.pi)
     ctx.fill()
+    _frost(ctx, cx, cy, R, settings.frost)
     ctx.set_line_width(RIM_WIDTH)
     ctx.set_source_rgba(*style.rim)
     ctx.arc(cx, cy, R, 0.0, 2.0 * math.pi)
@@ -458,6 +558,21 @@ def draw_settings(ctx, size, settings, style):
             ctx.set_source_rgba(1.0, 1.0, 1.0, 0.95)
             ctx.arc(sx, sy, sr, 0.0, 2.0 * math.pi)
             ctx.stroke()
+
+    # frost row (mirrors the opacity slider)
+    _text(ctx, "Frost", cx - R * 0.80, cy + R * 0.39, R * 0.11, DIM,
+          align="left")
+    fx, fy, fw, fh = lay["frost"]
+    ffrac = (settings.frost - FROST_MIN) / (FROST_MAX - FROST_MIN)
+    ctx.set_source_rgba(style.rim[0], style.rim[1], style.rim[2], 0.25)
+    _rrect(ctx, fx, fy, fw, fh, fh / 2.0)
+    ctx.fill()
+    ctx.set_source_rgba(TEXT[0], TEXT[1], TEXT[2], 0.9)
+    _rrect(ctx, fx, fy, max(fh, fw * ffrac), fh, fh / 2.0)
+    ctx.fill()
+    ctx.set_source_rgba(*style.hand_second)
+    ctx.arc(fx + fw * ffrac, fy + fh / 2.0, fh * 1.3, 0.0, 2.0 * math.pi)
+    ctx.fill()
 
     # back button
     bx, by, bw, bh = lay["back"]
