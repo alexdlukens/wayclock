@@ -12,7 +12,7 @@ description: |
 grade: stable
 confinement: strict
 license: MIT
-website: alukens.com
+contact: alexdlukens@gmail.com
 source-code: https://github.com/alexdlukens/wayclock
 apps:
   wayclock:
@@ -30,5 +30,8 @@ parts:
     build-environment:
       - PARTS_PYTHON_VENV_ARGS: --system-site-packages
     stage-packages:
+      - python3-gi
       - python3-gi-cairo
       - python3-cairo
+      - gir1.2-gtk-3.0
+      - libgtk-3-0
